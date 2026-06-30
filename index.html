@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لعبة الديناصور للمتصفح</title>
+    <title>لعبة الديناصور المحدثة</title>
     <style>
         body {
             margin: 0;
@@ -15,6 +15,7 @@
             height: 100vh;
             overflow: hidden;
             font-family: sans-serif;
+            user-select: none;
         }
         canvas {
             background-color: #ffffff;
@@ -35,23 +36,67 @@
     // إعدادات الديناصور
     let dino = { x: 50, y: 220, width: 40, height: 40, vy: 0, gravity: 0.6, jumpForce: -12, isJumping: false };
     
-    // إعدادات العقبات (الصبار)
+    // إعدادات العقبات والعالم
     let obstacles = [];
-    let obstacleTimer = 0;
     let score = 0;
     let isGameOver = false;
+    let baseSpeed = 6;
+    let currentSpeed = baseSpeed;
 
-    // استشعار النقر على الشاشة أو الضغط على الأزرار للقفز
+    // عداد الوفيات المستمر
+    let deathCount = 0;
+
+    // متغيرات التحكم بالمسافة العشوائية بين العقبات
+    let nextObstacleDistance = 400; // المسافة الأولى المطلوبة قبل توليد أول عقبة
+    let distanceTraveled = 0;      // المسافة المقطوعة منذ توليد آخر عقبة
+
+    // نظام توليد الأصوات البرمجية الذاتي
+    function playSound(frequency, duration, type = "sine") {
+        try {
+            let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            let oscillator = audioCtx.createOscillator();
+            let gainNode = audioCtx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.type = type;
+            oscillator.frequency.value = frequency;
+            oscillator.start();
+            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            oscillator.stop(audioCtx.currentTime + duration);
+        } catch(e) {
+            // تجاهل الخطأ في حال لم يتفاعل المستخدم مع الشاشة بعد
+        }
+    }
+
+    // استشعار القفز
     document.addEventListener("keydown", function(e) { if (e.code === "Space") triggerJump(); });
-    canvas.addEventListener("touchstart", function() { triggerJump(); });
+    canvas.addEventListener("touchstart", function(e) { e.preventDefault(); triggerJump(); });
 
     function triggerJump() {
         if (!dino.isJumping && !isGameOver) {
             dino.vy = dino.jumpForce;
             dino.isJumping = true;
+            playSound(300, 0.1, "square"); // صوت القفز
         }
         if (isGameOver) {
             resetGame();
+        }
+    }
+
+    // تحديد رسالة الموت بناءً على عدد مرات الخسارة المتراكمة
+    function getGameOverMessage() {
+        if (deathCount >= 30) {
+            // سيتم التعامل مع هذه الحالة بشكل خاص في حلقة اللعبة لطرد اللاعب
+            return "سئمت منك أيها النوب";
+        } else if (deathCount >= 20) {
+            return "أنا أسف لكن هذه اللعبة ليست مناسبة لأمثالك";
+        } else if (deathCount >= 10) {
+            return "لو لعبت بأصابع أرجلك لكان أدائك أفضل";
+        } else if (deathCount >= 5) {
+            return "حاول أكثر";
+        } else {
+            return "حاول مجدداً";
         }
     }
 
@@ -59,68 +104,139 @@
         obstacles = [];
         score = 0;
         isGameOver = false;
+        currentSpeed = baseSpeed;
         dino.y = 220;
         dino.vy = 0;
         dino.isJumping = false;
+        distanceTraveled = 0;
+        nextObstacleDistance = Math.floor(Math.random() * (500 - 250 + 1)) + 250; // توليد مسافة عشوائية ابتدائية
         gameLoop();
     }
 
     function gameLoop() {
         if (isGameOver) {
-            ctx.fillStyle = "#535353";
-            ctx.font = "30px sans-serif";
-            ctx.fillText("Game Over! انقر لإعادة اللعب", canvas.width/2 - 180, canvas.height/2);
+            ctx.fillStyle = "#e74c3c"; // لون أحمر غامق لرسائل الخسارة
+            ctx.font = "24px sans-serif";
+            ctx.textAlign = "center";
+            
+            let msg = getGameOverMessage();
+            ctx.fillText(msg, canvas.width / 2, canvas.height / 2 - 20);
+            
+            if (deathCount < 30) {
+                ctx.fillStyle = "#535353";
+                ctx.font = "18px sans-serif";
+                ctx.fillText("انقر على الشاشة لإعادة اللعب", canvas.width / 2, canvas.height / 2 + 20);
+            }
             return;
         }
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.textAlign = "left";
 
-        // 1. تحديث حركة الديناصور (الجاذبية)
+        // 1. زيادة السرعة ديناميكياً كلما ارتفع السكور (تزيد بمقدار 1 لكل 5 نقاط)
+        currentSpeed = baseSpeed + Math.floor(score / 5);
+
+        // 2. تحديث حركة الجاذبية للديناصور
         dino.vy += dino.gravity;
         dino.y += dino.vy;
         if (dino.y >= 220) { dino.y = 220; dino.vy = 0; dino.isJumping = false; }
 
-        // رسم الديناصور (مربع رمادي بسيط مثل الديناصور الأصلي)
-        ctx.fillStyle = "#535353";
+        // رسم الديناصور
+        ctx.fillStyle = "#34495e";
         ctx.fillRect(dino.x, dino.y, dino.width, dino.height);
 
-        // 2. توليد العقبات وتحديث حركتها
-        obstacleTimer++;
-        if (obstacleTimer % 100 === 0) {
-            obstacles.push({ x: canvas.width, y: 230, width: 20, height: 30 });
+        // 3. التحكم العشوائي بتوليد العقبات (صبار أو طائر) بحد أدنى وأقصى للخطورة
+        distanceTraveled += currentSpeed;
+
+        if (distanceTraveled >= nextObstacleDistance) {
+            // اختيار نوع العقبة عشوائياً (0 = صبار، 1 = طائر)
+            let type = Math.random() > 0.5 ? "cactus" : "bird";
+
+            if (type === "cactus") {
+                obstacles.push({
+                    type: "cactus",
+                    x: canvas.width,
+                    y: 230,
+                    width: 20,
+                    height: 30
+                });
+            } else {
+                // الطائر: يطير إما منخفضاً محاذياً للأرض (y=230) أو عالياً في مستوى قفزة اللاعب (y=130)
+                let birdY = Math.random() > 0.5 ? 230 : 130;
+                obstacles.push({
+                    type: "bird",
+                    x: canvas.width,
+                    y: birdY,
+                    width: 35,
+                    height: 20
+                });
+            }
+
+            // تصفير المسافة المقطوعة وتحديد حد عشوائي جديد للعقبة القادمة
+            distanceTraveled = 0;
+            // الحد الأدنى 250 بكسل (حتى لا تلتصق) والحد الأقصى 550 بكسل (حتى لا تبتعد كثيراً)
+            nextObstacleDistance = Math.floor(Math.random() * (550 - 250 + 1)) + 250;
         }
 
+        // 4. تحريك ورسم العقبات وتفقد التصادم
         for (let i = obstacles.length - 1; i >= 0; i--) {
-            obstacles[i].x -= 6; // سرعة حركة العقبة لليسار
+            obstacles[i].x -= currentSpeed;
 
-            // رسم العقبة (الصبار)
-            ctx.fillStyle = "#8a8a8a";
-            ctx.fillRect(obstacles[i].x, obstacles[i].y, obstacles[i].width, obstacles[i].height);
+            // تحديد اللون حسب نوع العائق
+            if (obstacles[i].type === "cactus") {
+                ctx.fillStyle = "#27ae60"; // لون الصبار أخضر
+                ctx.fillRect(obstacles[i].x, obstacles[i].y, obstacles[i].width, obstacles[i].height);
+            } else {
+                ctx.fillStyle = "#e67e22"; // لون الطائر برتقالي لتمييزه
+                ctx.fillRect(obstacles[i].x, obstacles[i].y, obstacles[i].width, obstacles[i].height);
+            }
 
-            // التحقق من التصادم بين الديناصور والعقبة
+            // التحقق من تداخل المربعات (التصادم)
             if (dino.x < obstacles[i].x + obstacles[i].width &&
                 dino.x + dino.width > obstacles[i].x &&
                 dino.y < obstacles[i].y + obstacles[i].height &&
                 dino.y + dino.height > obstacles[i].y) {
+                
+                // حدوث الخسارة
                 isGameOver = true;
+                deathCount++; // زيادة عدد الوفيات
+                playSound(100, 0.4, "sawtooth"); // صوت خشن عند الموت
+
+                // اللمسة الخاصة: إذا مات 30 مرة أو أكثر، تُعرض الرسالة لثانيتين ثم يُطرد
+                if (deathCount >= 30) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = "#c0392b";
+                    ctx.font = "26px sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.fillText("سئمت منك أيها النوب", canvas.width / 2, canvas.height / 2);
+                    
+                    setTimeout(() => {
+                        window.location.href = "https://www.google.com"; // الخروج من الموقع إلى جوجل
+                    }, 2000);
+                }
             }
 
-            // حذف العقبة إذا خرجت من الشاشة وزيادة النتيجة
-            if (obstacles[i].x < -20) {
+            // تجاوز العقبة بنجاح
+            if (obstacles[i] && obstacles[i].x < -40) {
                 obstacles.splice(i, 1);
                 score++;
+                playSound(600, 0.05, "sine"); // صوت نقطة خفيف عند تجاوز العقبة
             }
         }
 
-        // 3. رسم النتيجة
+        // 5. طباعة لوحة السكور وعدد الميتات في الأعلى
         ctx.fillStyle = "#535353";
-        ctx.font = "20px sans-serif";
-        ctx.fillText("النتيجة: " + score, 20, 30);
+        ctx.font = "18px sans-serif";
+        ctx.fillText("السكور: " + score, 20, 30);
+        ctx.fillText("المحاولات الفاشلة: " + deathCount, 20, 60);
 
-        requestAnimationFrame(gameLoop);
+        if (!isGameOver) {
+            requestAnimationFrame(gameLoop);
+        }
     }
 
-    // تشغيل اللعبة تلقائياً عند فتح الصفحة
+    // تشغيل اللعبة تلقائياً عند تحميل الصفحة لأول مرة
+    nextObstacleDistance = Math.floor(Math.random() * (500 - 250 + 1)) + 250;
     gameLoop();
 </script>
 
